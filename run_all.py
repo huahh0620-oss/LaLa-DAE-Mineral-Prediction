@@ -43,6 +43,8 @@ def parse_args(argv=None):
 def main(argv=None) -> int:
     args = parse_args(argv)
 
+    if args.seeds:
+        os.environ["LALA_SEEDS"] = args.seeds
     if args.data_path:
         os.environ["LALA_DATA_PATH"] = args.data_path
     if args.output_dir:

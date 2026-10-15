@@ -191,3 +191,6 @@ python run_all.py
 - Egozcue, J. J., et al., 2003. Isometric logratio transformations for compositional
   data analysis. *Mathematical Geology* 35(3), 279–300.
 - Bonham-Carter, G. F., 1994. *Geographic Information Systems for Geoscientists.*
+## 新增：空间独立验证与多随机种子基准
+
+直接在IDE运行 **run_spatial_all.py**，或依次运行根目录step08、step09、step10。完整说明见[空间验证文档](docs/13_空间独立验证与多种子基准.md)。实际空间验证结果位于 **outputs_spatial/RESULTS_SPATIAL.md**，逐折、逐种子指标和全部模型已保存。旧outputs保持为原回顾性实验记录。
