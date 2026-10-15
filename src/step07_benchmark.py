@@ -1,0 +1,227 @@
+# -*- coding: utf-8 -*-
+"""
+步骤 7 / Step 7 —— 基准测试
+====================================================================
+把本方法（CRBM 预训练 + 微调的深度自编码器）与多种常用方法在同一套
+变量子集、同一评价协议（ROC-AUC、t 值、Top-X% 捕获率）下对比：
+
+    1. deep_autoencoder   本方法（论文方法）
+    2. shallow_ae         浅层自编码器（单隐层）
+    3. pca                PCA 重构误差
+    4. isolation_forest   孤立森林
+    5. ocsvm              单类支持向量机
+    6. single_element_cu  单元素 Cu（传统单变量方法基线）
+    7. mahalanobis        马氏距离
+
+产出：
+  tables/step07_benchmark.csv       各方法定量指标
+  figures/step07_benchmark.png      ROC 对比 + AUC 柱状图
+"""
+from __future__ import annotations
+
+import time
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import config as C
+from src.common import (limit_threads, locate_eval_raster, log,
+                        read_deposit_aligned, resolve_device, save_json, set_seed)
+from src.step06_evaluate import _roc_capture, scan_thresholds
+
+
+# ---------------------------------------------------------------------
+def score_pca(X, n_components=5, seed=0):
+    from sklearn.decomposition import PCA
+    p = PCA(n_components=n_components, random_state=seed).fit(X)
+    return ((X - p.inverse_transform(p.transform(X))) ** 2).mean(axis=1)
+
+
+def score_mahalanobis(X):
+    mu = X.mean(axis=0)
+    cov = np.cov(X, rowvar=False) + np.eye(X.shape[1]) * 1e-6
+    inv = np.linalg.pinv(cov)
+    d = X - mu
+    return np.einsum("ij,jk,ik->i", d, inv, d)
+
+
+def score_isolation_forest(X, seed=0):
+    from sklearn.ensemble import IsolationForest
+    m = IsolationForest(n_estimators=300, random_state=seed, n_jobs=-1).fit(X)
+    return -m.score_samples(X)
+
+
+def score_ocsvm(X, seed=0, max_fit=5000):
+    from sklearn.svm import OneClassSVM
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(X.shape[0], size=min(max_fit, X.shape[0]), replace=False)
+    m = OneClassSVM(kernel="rbf", gamma="scale", nu=0.05).fit(X[idx])
+    return -m.decision_function(X)
+
+
+def score_shallow_ae(X, bottleneck=5, epochs=200, lr=0.8, seed=0, device=None):
+    import torch
+    import torch.nn as nn
+    device = device or resolve_device(C.DEVICE)
+    set_seed(seed)
+    d = X.shape[1]
+    net = nn.Sequential(nn.Linear(d, bottleneck), nn.Sigmoid(),
+                        nn.Linear(bottleneck, d), nn.Sigmoid()).to(device)
+    opt = torch.optim.SGD(net.parameters(), lr=lr, momentum=C.FINETUNE_MOMENTUM,
+                          weight_decay=C.FINETUNE_WEIGHT_DECAY)
+    lossf = nn.MSELoss()
+    Xt = torch.as_tensor(X, dtype=torch.float32, device=device)
+    loader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(Xt), batch_size=C.FINETUNE_BATCH_SIZE, shuffle=True)
+    net.train()
+    for _ in range(epochs):
+        for (b,) in loader:
+            opt.zero_grad(); loss = lossf(net(b), b); loss.backward(); opt.step()
+    net.eval()
+    with torch.no_grad():
+        R = net(Xt).cpu().numpy()
+    return ((X - R) ** 2).mean(axis=1)
+
+
+def score_deep_autoencoder(X, seed, deposit):
+    """优先复用 step05 的结果；否则现场训练。"""
+    ap = C.CACHE_DIR / "anomaly_scores.npz"
+    if int(seed) == int(C.RANDOM_SEEDS[0]) and ap.exists():
+        return np.load(ap, allow_pickle=True)["score_raw"].astype(np.float64)
+    from src.common import resolve_device
+    from src.step03_pretrain_crbm import run as pre_run
+    from src.step04_finetune import run as fin_run
+    from src.step05_anomaly_map import _load_model, reconstruction_error
+    pre_run(seed); fin_run(seed)
+    device = resolve_device(C.DEVICE)
+    return reconstruction_error(_load_model(seed, device), X.astype(np.float32), device)
+
+
+def score_single_element(Xn, feature_names, element="Cu", fallback_idx=0):
+    names = [str(n) for n in feature_names]
+    j = names.index(element) if element in names else fallback_idx
+    return Xn[:, j].astype(np.float64)
+
+
+METHOD_FUNCS = {
+    "pca": lambda X, names, seed, dep: score_pca(X, min(5, X.shape[1] - 1), seed),
+    "mahalanobis": lambda X, names, seed, dep: score_mahalanobis(X),
+    "isolation_forest": lambda X, names, seed, dep: score_isolation_forest(X, seed),
+    "ocsvm": lambda X, names, seed, dep: score_ocsvm(X, seed),
+    "shallow_ae": lambda X, names, seed, dep: score_shallow_ae(
+        X, min(5, max(2, X.shape[1] // 2)), C.FINETUNE_EPOCHS, C.FINETUNE_LR, seed),
+    "single_element_cu": lambda X, names, seed, dep: score_single_element(X, names, "Cu"),
+    "deep_autoencoder": lambda X, names, seed, dep: score_deep_autoencoder(X, seed, dep),
+}
+
+
+def _minmax(s):
+    lo, hi = float(np.nanmin(s)), float(np.nanmax(s))
+    return (s - lo) / (hi - lo) if hi > lo else np.zeros_like(s)
+
+
+def evaluate_score(score, deposit):
+    score = np.asarray(score, dtype=np.float64)
+    order = np.argsort(-score); n = score.size
+    scan = scan_thresholds(_minmax(score), deposit, 80)
+    rc = _roc_capture(score, deposit)
+    m = {"t_max": float(np.nanmax(scan["t_value"].values)),
+         "threshold_t_max": float(scan["threshold"].iloc[int(np.nanargmax(scan["t_value"].values))]),
+         "roc_auc": rc["auc"], "average_precision": rc["ap"]}
+    for pct in C.CAPTURE_PERCENTS:
+        k = max(1, int(round(n * pct / 100.0)))
+        m[f"capture_top{pct}pct"] = float(deposit[order[:k]].sum() / max(int(deposit.sum()), 1))
+    m["deposit_mean_score_ratio"] = float(
+        score[deposit].mean() / score[~deposit].mean()) if (~deposit).any() else np.nan
+    m["median_deposit_percentile"] = float(np.median(
+        [(score < v).mean() for v in score[deposit]]))
+    return m
+
+
+def run() -> dict:
+    t0 = time.time()
+    limit_threads(C.NUM_THREADS)
+    log.info("=" * 68)
+    log.info("STEP 7 | 基准测试 (Benchmark)")
+    log.info("=" * 68)
+
+    ds = np.load(C.CACHE_DIR / "dataset.npz", allow_pickle=True)
+    valid_mask = ds["valid_mask"].astype(bool)
+    height, width = int(ds["height"]), int(ds["width"])
+
+    from src.step03_pretrain_crbm import load_input_matrix
+    X, names, _ = load_input_matrix()
+    X = X.astype(np.float64)
+    log.info("参与对比的变量 (%d): %s", len(names), ", ".join(names))
+
+    pos_path = locate_eval_raster(C.Data_Path, C.EVAL_RASTER, C.POSITIVE_RASTER,
+                                  C.POSITIVE_SEARCH_PARENTS)
+    deposit = read_deposit_aligned(pos_path, valid_mask, (height, width))
+    log.info("已知矿点像元: %d；背景像元: %d", int(deposit.sum()), int((~deposit).sum()))
+
+    rows, roc_store = [], {}
+    for method in C.BENCHMARK_METHODS:
+        for seed in C.BENCHMARK_SEEDS:
+            log.info("-" * 60)
+            log.info("方法 %s (seed=%d) ...", method, seed)
+            try:
+                sc = np.asarray(METHOD_FUNCS[method](X, names, seed, deposit), dtype=np.float64)
+            except Exception as e:  # noqa: BLE001
+                log.warning("方法 %s 失败: %s", method, e)
+                continue
+            m = evaluate_score(sc, deposit)
+            m.update({"method": method, "seed": int(seed)})
+            rows.append(m)
+            roc_store[method] = _roc_capture(sc, deposit)
+            log.info("    AUC=%.3f  t_max=%.2f  Top10%%捕获=%.1f%%",
+                     m["roc_auc"], m["t_max"], 100 * m["capture_top10pct"])
+
+    df = pd.DataFrame(rows)
+    cols = ["method", "seed", "roc_auc", "average_precision", "t_max", "threshold_t_max",
+            "capture_top1pct", "capture_top5pct", "capture_top10pct", "capture_top20pct",
+            "median_deposit_percentile", "deposit_mean_score_ratio"]
+    df = df[[c for c in cols if c in df.columns]]
+    df.to_csv(C.TABLE_DIR / "step07_benchmark.csv", index=False, encoding="utf-8-sig")
+    log.info("基准结果已写入 %s", C.TABLE_DIR / "step07_benchmark.csv")
+
+    _plot(df, roc_store)
+
+    report = {"methods": C.BENCHMARK_METHODS, "seeds": C.BENCHMARK_SEEDS,
+              "input_features": names, "results": df.to_dict(orient="records"),
+              "elapsed_sec": round(time.time() - t0, 2),
+              "outputs": {"benchmark_csv": str(C.TABLE_DIR / "step07_benchmark.csv"),
+                          "figure": str(C.FIG_DIR / "step07_benchmark.png")}}
+    save_json(C.TABLE_DIR / "step07_report.json", report)
+    log.info("STEP 7 完成，用时 %.1f s", time.time() - t0)
+    return report
+
+
+def _plot(df, roc_store):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(13.0, 5.0), dpi=C.FIGURE_DPI)
+    for method, rc in roc_store.items():
+        lw = 2.4 if method == "deep_autoencoder" else 1.4
+        axes[0].plot(rc["fpr"], rc["tpr"], lw=lw, label=f"{method} ({rc['auc']:.3f})")
+    axes[0].plot([0, 1], [0, 1], ls="--", color="grey", lw=1)
+    axes[0].set_xlabel("False positive rate"); axes[0].set_ylabel("True positive rate")
+    axes[0].set_title("ROC comparison of anomaly-detection methods")
+    axes[0].grid(alpha=0.3, ls=":"); axes[0].legend(fontsize=8)
+
+    agg = df.groupby("method")["roc_auc"].mean().sort_values()
+    colors = ["#d7191c" if m == "deep_autoencoder" else "#9ecae1" for m in agg.index]
+    axes[1].barh(range(len(agg)), agg.values, color=colors)
+    axes[1].set_yticks(range(len(agg))); axes[1].set_yticklabels(agg.index, fontsize=9)
+    axes[1].set_xlabel("ROC-AUC (higher is better)"); axes[1].set_xlim(0, 1)
+    axes[1].set_title("Benchmark: ROC-AUC")
+    for i, v in enumerate(agg.values):
+        axes[1].text(v + 0.01, i, f"{v:.3f}", va="center", fontsize=8.5)
+    axes[1].grid(alpha=0.3, axis="x", ls=":")
+    fig.tight_layout(); fig.savefig(C.FIG_DIR / "step07_benchmark.png"); plt.close(fig)
+
+
+if __name__ == "__main__":
+    run()

@@ -1,0 +1,17 @@
+# 数据与运行产物不入库（代码仓库只保存代码 + 论文用图表）
+*.zip
+*.tif
+*.tiff
+*.tfw
+*.aux.xml
+*.xml
+!outputs/**/*.tif
+outputs/cache/
+outputs/models/
+outputs/*.log
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+.env

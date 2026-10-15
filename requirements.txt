@@ -1,0 +1,9 @@
+# 拉拉式铜金矿深度自编码器找矿 —— 运行依赖
+# Python >= 3.10
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+scikit-learn>=1.3
+rasterio>=1.3
+matplotlib>=3.7
+torch>=2.0          # CPU 版即可；有 GPU 可装 CUDA 版加速
