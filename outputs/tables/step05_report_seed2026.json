@@ -1,0 +1,48 @@
+{
+  "seeds": [
+    2026
+  ],
+  "score_mode": "weighted",
+  "input_features": [
+    "Cu",
+    "F",
+    "Mo",
+    "Au",
+    "Ag",
+    "Mn",
+    "As",
+    "B",
+    "Na2O",
+    "Fe2O3",
+    "Ba",
+    "Ni"
+  ],
+  "pathfinder_weights": {
+    "Cu": 0.1699109805448244,
+    "F": 0.14319749561556808,
+    "Mo": 0.13705584921072575,
+    "Au": 0.11510653806176371,
+    "Ag": 0.10649140666647797,
+    "Mn": 0.08203801702069725,
+    "As": 0.07688454087177725,
+    "B": 0.07222362017549973,
+    "Na2O": 0.04330357859892448,
+    "Fe2O3": 0.022447985302879548,
+    "Ba": 0.016850903311517625,
+    "Ni": 0.014489084619344096
+  },
+  "positive_raster": "LaLa_Data\\positive_IOCG.tif",
+  "score_min": 6.36216375900139e-05,
+  "score_max": 0.041031991510567696,
+  "score_mean": 0.0029322894811848,
+  "score_std": 0.002778144806200983,
+  "n_pixels": 20289,
+  "elapsed_sec": 0.5,
+  "outputs": {
+    "anomaly_map": "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\anomaly_map.tif",
+    "anomaly_map_mse": "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\anomaly_map_mse.tif",
+    "anomaly_map_weighted": "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\anomaly_map_weighted.tif",
+    "scores": "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\cache\\anomaly_scores.npz",
+    "figure": "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\figures\\step05_anomaly_map.png"
+  }
+}

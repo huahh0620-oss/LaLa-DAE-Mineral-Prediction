@@ -1,0 +1,44 @@
+{
+  "seed": 2026,
+  "positive_raster": "LaLa_Data\\positive_IOCG.tif",
+  "t_max": 14.1834749257641,
+  "threshold_t_max": 0.34051676710549783,
+  "threshold_t_critical": 0.03156068849807571,
+  "threshold_moderate": 0.06681902114748507,
+  "t_critical": 1.96,
+  "moderate_enrichment_min": 2.0,
+  "metrics": {
+    "seed": 2026,
+    "positive_raster": "positive_IOCG.tif",
+    "n_features_used": 12,
+    "n_pixels": 20289,
+    "n_deposit": 23,
+    "roc_auc": 0.7658296826125573,
+    "average_precision": 0.07416410707051753,
+    "t_max": 14.1834749257641,
+    "threshold_t_max": 0.34051676710549783,
+    "threshold_t_critical": 0.03156068849807571,
+    "high_class_area_fraction": 0.010005421657055548,
+    "high_class_deposit_fraction": 0.30434782608695654,
+    "moderate_or_high_deposit_fraction": 0.7391304347826086,
+    "median_deposit_percentile": 0.8947705653309675,
+    "deposit_mean_score_ratio": 3.6967583811130105,
+    "capture_top1pct": 0.30434782608695654,
+    "capture_top5pct": 0.391304347826087,
+    "capture_top10pct": 0.43478260869565216,
+    "capture_top20pct": 0.6086956521739131
+  },
+  "elapsed_sec": 0.53,
+  "outputs": {
+    "threshold_scan": "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\tables\\step06_threshold_scan.csv",
+    "metrics": "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\tables\\step06_metrics.csv",
+    "classes": "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\tables\\step06_anomaly_classes.csv",
+    "deposit_pixels": "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\tables\\step06_deposit_pixels.csv",
+    "class_raster": "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\anomaly_classes.tif",
+    "figures": [
+      "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\figures\\step06_tvalue.png",
+      "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\figures\\step06_anomaly_classes.png",
+      "F:\\文件夹\\深度编码器\\矿产预测\\outputs\\figures\\step06_roc_capture.png"
+    ]
+  }
+}
